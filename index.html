@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GT S2</title>
+    <style>
+        @keyframes rgbGlow {
+            0% { border-color: red; }
+            25% { border-color: blue; }
+            50% { border-color: green; }
+            75% { border-color: yellow; }
+            100% { border-color: red; }
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: black;
+            color: white;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* Main Container */
+        #mainApp {
+            max-width: 650px;
+            margin: auto;
+            background: #222;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 150, 0, 0.3);
+            border: 4px solid;
+            animation: rgbGlow 3s infinite;
+        }
+
+        /* Title */
+        h1 {
+            font-size: 24px;
+            color: #ffcc00;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        /* Result Box */
+        .result-box {
+            background: #111;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 5px rgba(255, 255, 255, 0.2);
+            border: 3px solid;
+            animation: rgbGlow 2s infinite;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        /* History Table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .history-table th, .history-table td {
+            padding: 10px;
+            font-size: 14px;
+            border-bottom: 1px solid white;
+        }
+
+        .history-table th {
+            background: #444;
+            color: #ffcc00;
+            text-transform: uppercase;
+        }
+
+        /* Status Colors */
+        .win { color: lime; font-weight: bold; }
+        .loss { color: red; font-weight: bold; }
+        .pending { color: orange; font-weight: bold; }
+
+        /* Popup Styling */
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: black;
+            color: white;
+            padding: 20px;
+            border: 3px solid;
+            animation: rgbGlow 1s infinite;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 1000;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="mainApp">
+        <h1>BN API SERVER</h1>
+
+        <div class="result-box">
+            📅 Period: <span id="currentPeriod">-</span>  
+            <br>
+            📊 Result: <span id="currentResult">-</span>
+        </div>
+
+        <div class="card">
+            <h2>History</h2>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Period</th>
+                        <th>Prediction</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTable">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="popup" class="popup"></div>
+
+    <script>
+        let historyData = [];
+        let lastFetchedPeriod = null;
+
+        // Function to fetch game result
+        async function fetchGameResult() {
+            try {
+                let response = await fetch("https://api.bdg88zf.com/api/webapi/GetNoaverageEmerdList", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        pageSize: 10,
+                        pageNo: 1,
+                        typeId: 1,
+                        language: 0,
+                        random: "4a0522c6ecd8410496260e686be2a57c",
+                        signature: "334B5E70A0C9B8918B0B15E517E2069C",
+                        timestamp: Math.floor(Date.now() / 1000)
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+
+                let data = await response.json();
+                let latestResult = data?.data?.list?.[0];
+                if (latestResult) {
+                    return { period: latestResult.issueNumber, result: latestResult.number };
+                } else {
+                    throw new Error("No data found in API response");
+                }
+            } catch (error) {
+                console.error("Error fetching game result:", error);
+                return null;
+            }
+        }
+
+        // Algorithm: Trend Analysis
+        function trendAnalysis(history) {
+            let bigCount = history.filter(item => item.result >= 5).length;
+            let smallCount = history.filter(item => item.result < 5).length;
+            return bigCount > smallCount ? "BIG" : "SMALL";
+        }
+
+        // Function to update prediction
+        async function updatePrediction() {
+            let apiResult = await fetchGameResult();
+            if (apiResult && apiResult.period !== lastFetchedPeriod) {
+                lastFetchedPeriod = apiResult.period;
+                let currentPeriod = (BigInt(apiResult.period) + 1n).toString();
+                let prediction = trendAnalysis(historyData);
+                let resultText = apiResult.result >= 5 ? "BIG" : "SMALL";
+
+                document.getElementById("currentPeriod").innerText = currentPeriod;
+                document.getElementById("currentResult").innerText = resultText;
+
+                // Show popup result
+                showPopup(`📅 Period: ${currentPeriod} <br> 📊 Result: ${resultText}`);
+
+                historyData.unshift({ period: currentPeriod, prediction: prediction, result: apiResult.result, status: "Pending" });
+                updateHistory();
+                checkWinLoss(apiResult);
+            }
+        }
+
+        // Function to check win/loss
+        function checkWinLoss(apiResult) {
+            if (!apiResult) return;
+
+            historyData.forEach(item => {
+                if (item.period === apiResult.period) {
+                    let actualResult = apiResult.result >= 5 ? "BIG" : "SMALL";
+                    item.status = (item.prediction === actualResult) ? "WIN" : "LOSS";
+                }
+            });
+
+            updateHistory();
+        }
+
+        // Function to update history table
+        function updateHistory() {
+            let historyTable = document.getElementById("historyTable");
+            historyTable.innerHTML = "";
+            historyData.forEach(item => {
+                let statusClass = item.status === "WIN" ? "win" : (item.status === "LOSS" ? "loss" : "pending");
+                historyTable.innerHTML += `
+                    <tr>
+                        <td>${item.period}</td>
+                        <td>${item.prediction}</td>
+                        <td class="${statusClass}">${item.status}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Function to show popup
+        function showPopup(message) {
+            let popup = document.getElementById("popup");
+            popup.innerHTML = message;
+            popup.style.display = "block";
+            setTimeout(() => {
+                popup.style.display = "none";
+            }, 5000);
+        }
+
+        // Update every second
+        setInterval(updatePrediction, 1000);
+    </script>
+</body>
+</html>
